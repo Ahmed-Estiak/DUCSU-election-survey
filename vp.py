@@ -29,21 +29,12 @@ for s in surveys:
     rmse = np.sqrt((poll_df["error"]**2).mean())
     variance = poll_df["error"].var(ddof=0)
 
-    # Ranks
-    poll_df["pred_rank"] = poll_df[s].rank(ascending=False, method="dense")
-
-    merged = poll_df.merge(actual_df[["VP Candidate", "actual_rank"]], on="VP Candidate")
-
-    # Sum of absolute rank differences
-    roe = (merged["pred_rank"] - merged["actual_rank"]).abs().sum()
-
     results.append({
         "Survey": s,
         "Candidates Used": len(poll_df),
         "MAE": round(mae, 3),
         "RMSE": round(rmse, 3),
-        "Variance": round(variance, 3),
-        "Rank Order Error": int(roe)
+        "Variance": round(variance, 3)
     })
 
 # === 5. Final result table ===
