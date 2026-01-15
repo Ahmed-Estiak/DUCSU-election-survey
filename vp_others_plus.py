@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 def main() -> None:
@@ -52,7 +53,6 @@ def main() -> None:
         abs_error = errors.abs()
         mae = abs_error.mean()
         rmse = np.sqrt((errors ** 2).mean())
-        variance = errors.var(ddof=0)
         mape = (abs_error / common_df["Actual"]).mean() * 100
         wape = abs_error.sum() / common_df["Actual"].sum() * 100
 
@@ -75,13 +75,66 @@ def main() -> None:
                 "Margin of Victory Error": round(mov_error, 3)
                 if not np.isnan(mov_error)
                 else np.nan,
-                "Variance": round(variance, 3),
             }
         )
 
     results_df = pd.DataFrame(results)
     print("Candidates:", ", ".join(common_df["VP Candidate"]))
     print(results_df)
+    fig, ax = plt.subplots(figsize=(9, 3))
+    ax.axis("off")
+    table = ax.table(
+        cellText=results_df.values,
+        colLabels=results_df.columns,
+        cellLoc="center",
+        colLoc="center",
+        loc="center",
+        edges="closed",
+    )
+    header_color = "#1f2937"
+    row_colors = ["#f8fafc", "#eef2f7"]
+    text_color = "#111827"
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1, 1.5)
+    for (row, col), cell in table.get_celld().items():
+        cell.set_linewidth(0.6)
+        if row == 0:
+            cell.set_facecolor(header_color)
+            cell.set_text_props(color="white", weight="bold")
+        else:
+            cell.set_facecolor(row_colors[(row - 1) % 2])
+            cell.set_text_props(color=text_color)
+    ax.set_title("DUCSU VP election (Others+)", pad=12, fontweight="bold")
+    fig.set_facecolor("white")
+    plt.tight_layout()
+    plt.show()
+
+    plot_df = (
+        common_df.sort_values("Actual", ascending=False)
+        .set_index("VP Candidate")[["Actual"] + survey_cols]
+    )
+    plt.figure(figsize=(10, 6))
+    plt.style.use("seaborn-v0_8-whitegrid")
+    for col in plot_df.columns:
+        plt.plot(
+            plot_df.index,
+            plot_df[col],
+            marker="o",
+            markersize=7,
+            linewidth=2,
+            label=col,
+        )
+    plt.title("VP Common Candidates: Actual vs Survey Results")
+    plt.xlabel("VP Candidate")
+    plt.ylabel("Vote Share")
+    plt.xticks(rotation=45, ha="right")
+    ax = plt.gca()
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    plt.legend(frameon=False)
+    plt.tight_layout()
+    plt.show()
 
 
 if __name__ == "__main__":

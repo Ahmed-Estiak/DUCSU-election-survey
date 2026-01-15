@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 def mov_on_actual_top_two(df_slice: pd.DataFrame, pred_col: str, actual_col: str) -> float:
@@ -14,17 +15,27 @@ def mov_on_actual_top_two(df_slice: pd.DataFrame, pred_col: str, actual_col: str
     return float(values[0] - values[1])
 
 
-def compute_metrics(df_slice: pd.DataFrame, pred_col: str, actual_col: str) -> dict[str, float]:
+def compute_metrics(
+    df_slice: pd.DataFrame,
+    pred_col: str,
+    actual_col: str,
+    candidate_col: str = "Candidate",
+) -> dict[str, float]:
     errors = df_slice[pred_col] - df_slice[actual_col]
     abs_error = errors.abs()
     mae = abs_error.mean()
     rmse = np.sqrt((errors**2).mean())
-    variance = errors.var(ddof=0)
     mape = (abs_error / df_slice[actual_col]).replace([np.inf, -np.inf], np.nan).mean() * 100
     wape = abs_error.sum() / df_slice[actual_col].sum() * 100
 
-    actual_mov = mov_on_actual_top_two(df_slice, pred_col=actual_col, actual_col=actual_col)
-    pred_mov = mov_on_actual_top_two(df_slice, pred_col=pred_col, actual_col=actual_col)
+    mov_df = df_slice
+    if candidate_col in df_slice.columns:
+        mov_df = df_slice[
+            ~df_slice[candidate_col].str.contains("Others", case=False, na=False)
+        ]
+
+    actual_mov = mov_on_actual_top_two(mov_df, pred_col=actual_col, actual_col=actual_col)
+    pred_mov = mov_on_actual_top_two(mov_df, pred_col=pred_col, actual_col=actual_col)
     mov_error = (
         abs(pred_mov - actual_mov)
         if not np.isnan(pred_mov) and not np.isnan(actual_mov)
@@ -38,16 +49,63 @@ def compute_metrics(df_slice: pd.DataFrame, pred_col: str, actual_col: str) -> d
         "MAPE (%)": round(mape, 3),
         "WAPE (%)": round(wape, 3),
         "Margin of Victory Error": round(mov_error, 3) if not np.isnan(mov_error) else np.nan,
-        "Variance": round(variance, 3),
     }
 
 
-def compute_mov_error(df_slice: pd.DataFrame, pred_col: str, actual_col: str) -> float:
-    actual_mov = mov_on_actual_top_two(df_slice, pred_col=actual_col, actual_col=actual_col)
-    pred_mov = mov_on_actual_top_two(df_slice, pred_col=pred_col, actual_col=actual_col)
-    if np.isnan(actual_mov) or np.isnan(pred_mov):
-        return np.nan
-    return round(abs(pred_mov - actual_mov), 3)
+def render_table(title: str, df: pd.DataFrame) -> None:
+    fig, ax = plt.subplots(figsize=(9, 3))
+    ax.axis("off")
+    table = ax.table(
+        cellText=df.values,
+        colLabels=df.columns,
+        cellLoc="center",
+        colLoc="center",
+        loc="center",
+        edges="closed",
+    )
+    header_color = "#1f2937"
+    row_colors = ["#f8fafc", "#eef2f7"]
+    text_color = "#111827"
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1, 1.5)
+    for (row, col), cell in table.get_celld().items():
+        cell.set_linewidth(0.6)
+        if row == 0:
+            cell.set_facecolor(header_color)
+            cell.set_text_props(color="white", weight="bold")
+        else:
+            cell.set_facecolor(row_colors[(row - 1) % 2])
+            cell.set_text_props(color=text_color)
+    ax.set_title(title, pad=12, fontweight="bold")
+    fig.set_facecolor("white")
+    plt.tight_layout()
+    plt.show()
+
+
+def render_line_plot(title: str, df: pd.DataFrame, candidate_col: str) -> None:
+    plot_df = df.sort_values("Actual", ascending=False).set_index(candidate_col)
+    plt.figure(figsize=(10, 6))
+    plt.style.use("seaborn-v0_8-whitegrid")
+    for col in plot_df.columns:
+        plt.plot(
+            plot_df.index,
+            plot_df[col],
+            marker="o",
+            markersize=7,
+            linewidth=2,
+            label=col,
+        )
+    plt.title(title)
+    plt.xlabel(f"{candidate_col} candidate")
+    plt.ylabel("Vote Share")
+    plt.xticks(rotation=45, ha="right")
+    ax = plt.gca()
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    plt.legend(frameon=False)
+    plt.tight_layout()
+    plt.show()
 
 
 def main() -> None:
@@ -87,7 +145,6 @@ def main() -> None:
     ]
 
     all_rows = []
-    mov_rows = []
     for section in sections:
         base_cols = [section["candidate_col"], section["actual_col"]]
         section_df = df[base_cols].rename(
@@ -110,22 +167,6 @@ def main() -> None:
             metrics = compute_metrics(survey_df, pred_col="Predicted", actual_col="Actual")
             section_results.append({"Survey": survey_label, **metrics})
 
-            no_others_df = survey_df[
-                ~survey_df["Candidate"].str.contains("Others", case=False, na=False)
-            ].copy()
-            mov_error = (
-                compute_mov_error(no_others_df, pred_col="Predicted", actual_col="Actual")
-                if not no_others_df.empty
-                else np.nan
-            )
-            mov_rows.append(
-                {
-                    "Office": section["label"],
-                    "Survey": survey_label,
-                    "Margin of Victory Error": mov_error,
-                }
-            )
-
             all_rows.append(
                 {
                     "Office": section["label"],
@@ -138,6 +179,25 @@ def main() -> None:
             out_df = pd.DataFrame(section_results)
             print(f"{section['label']} candidates:", ", ".join(section_df["Candidate"]))
             print(out_df)
+            render_table(f"{section['label']} election", out_df)
+
+            plot_cols = ["Actual"] + list(section["survey_cols"].values())
+            plot_df = df[
+                [section["candidate_col"], section["actual_col"]] + plot_cols[1:]
+            ].rename(
+                columns={
+                    section["candidate_col"]: "Candidate",
+                    section["actual_col"]: "Actual",
+                    **{col: label for label, col in section["survey_cols"].items()},
+                }
+            )
+            plot_df = plot_df.dropna(subset=["Actual"])
+            if not plot_df.empty:
+                render_line_plot(
+                    f"{section['label']} candidates: Actual vs Survey Results",
+                    plot_df,
+                    "Candidate",
+                )
 
     if all_rows:
         total_rows = []
@@ -147,15 +207,12 @@ def main() -> None:
                 ignore_index=True,
             )
             metrics = compute_metrics(combined, pred_col="Predicted", actual_col="Actual")
+            metrics.pop("Margin of Victory Error", None)
             total_rows.append({"Survey": survey_label, **metrics})
         total_df = pd.DataFrame(total_rows)
         print("Total candidates:", ", ".join(pd.concat([row["Data"] for row in all_rows])["Candidate"]))
         print(total_df)
-
-    mov_df = pd.DataFrame(mov_rows)
-    print("Margin of Victory Error without Others/Others+:")
-    print(mov_df)
-
+        render_table("Total candidates", total_df)
 
 if __name__ == "__main__":
     main()

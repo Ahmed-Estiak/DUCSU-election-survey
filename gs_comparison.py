@@ -1,11 +1,12 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 def main() -> None:
     df = pd.read_csv("DUCSU GS - Sheet1.csv")
 
-    survey_cols = ["Dessent", "Narrative"]
+    survey_cols = ["Dessent", "Narrativ"]
     common_df = df[df[survey_cols].notna().all(axis=1)][
         ["GS candidate", "Actual"] + survey_cols
     ].copy()
@@ -24,69 +25,18 @@ def main() -> None:
         values = top_two_actual[pred_col].to_numpy()
         return float(values[0] - values[1])
 
-    def rank_series(values: pd.Series) -> np.ndarray:
-        return values.rank(ascending=False, method="average").to_numpy()
-
-    def kendall_tau_b(rank_a: np.ndarray, rank_b: np.ndarray) -> float:
-        n = len(rank_a)
-        concordant = discordant = ties_a = ties_b = 0
-        for i in range(n - 1):
-            for j in range(i + 1, n):
-                a_diff = rank_a[i] - rank_a[j]
-                b_diff = rank_b[i] - rank_b[j]
-                if a_diff == 0 and b_diff == 0:
-                    ties_a += 1
-                    ties_b += 1
-                elif a_diff == 0:
-                    ties_a += 1
-                elif b_diff == 0:
-                    ties_b += 1
-                elif a_diff * b_diff > 0:
-                    concordant += 1
-                else:
-                    discordant += 1
-        denom = np.sqrt(
-            (concordant + discordant + ties_a)
-            * (concordant + discordant + ties_b)
-        )
-        if denom == 0:
-            return np.nan
-        return (concordant - discordant) / denom
-
-    def spearman_rank_corr(rank_a: np.ndarray, rank_b: np.ndarray) -> float:
-        if np.std(rank_a) == 0 or np.std(rank_b) == 0:
-            return np.nan
-        return float(np.corrcoef(rank_a, rank_b)[0, 1])
-
-    def spearman_footrule(rank_a: np.ndarray, rank_b: np.ndarray) -> float:
-        return float(np.abs(rank_a - rank_b).sum())
-
-    def ndcg(actual: pd.Series, predicted: pd.Series) -> float:
-        order = predicted.sort_values(ascending=False).index
-        rel = actual.loc[order].to_numpy()
-        denom = np.log2(np.arange(2, len(rel) + 2))
-        dcg = float((rel / denom).sum())
-        ideal_order = actual.sort_values(ascending=False).index
-        ideal_rel = actual.loc[ideal_order].to_numpy()
-        idcg = float((ideal_rel / denom).sum())
-        if idcg == 0:
-            return np.nan
-        return dcg / idcg
-
     results = []
-    rank_results = []
-    actual_ranks = rank_series(common_df["Actual"])
     for survey in survey_cols:
         errors = common_df[survey] - common_df["Actual"]
         abs_error = errors.abs()
         mae = abs_error.mean()
         rmse = np.sqrt((errors ** 2).mean())
-        variance = errors.var(ddof=0)
         mape = (abs_error / common_df["Actual"]).mean() * 100
         wape = abs_error.sum() / common_df["Actual"].sum() * 100
 
-        actual_mov = mov_on_actual_top_two(common_df, "Actual")
-        pred_mov = mov_on_actual_top_two(common_df, survey)
+        mov_df = common_df[common_df["GS candidate"] != "Others+"]
+        actual_mov = mov_on_actual_top_two(mov_df, "Actual")
+        pred_mov = mov_on_actual_top_two(mov_df, survey)
         mov_error = (
             abs(pred_mov - actual_mov)
             if not np.isnan(pred_mov) and not np.isnan(actual_mov)
@@ -104,30 +54,65 @@ def main() -> None:
                 "Margin of Victory Error": round(mov_error, 3)
                 if not np.isnan(mov_error)
                 else np.nan,
-                "Variance": round(variance, 3),
-            }
-        )
-
-        survey_ranks = rank_series(common_df[survey])
-        rank_results.append(
-            {
-                "Survey": survey,
-                "Kendall's Tau": round(kendall_tau_b(actual_ranks, survey_ranks), 3),
-                "Spearman Rank": round(
-                    spearman_rank_corr(actual_ranks, survey_ranks), 3
-                ),
-                "Spearman Footrule": round(
-                    spearman_footrule(actual_ranks, survey_ranks), 3
-                ),
-                "NDCG": round(ndcg(common_df["Actual"], common_df[survey]), 3),
             }
         )
 
     results_df = pd.DataFrame(results)
-    rank_df = pd.DataFrame(rank_results)
     print("Common candidates:", ", ".join(common_df["GS candidate"]))
     print(results_df)
-    print(rank_df)
+    fig, ax = plt.subplots(figsize=(9, 3))
+    ax.axis("off")
+    table = ax.table(
+        cellText=results_df.values,
+        colLabels=results_df.columns,
+        cellLoc="center",
+        colLoc="center",
+        loc="center",
+        edges="closed",
+    )
+    header_color = "#1f2937"
+    row_colors = ["#f8fafc", "#eef2f7"]
+    text_color = "#111827"
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1, 1.5)
+    for (row, col), cell in table.get_celld().items():
+        cell.set_linewidth(0.6)
+        if row == 0:
+            cell.set_facecolor(header_color)
+            cell.set_text_props(color="white", weight="bold")
+        else:
+            cell.set_facecolor(row_colors[(row - 1) % 2])
+            cell.set_text_props(color=text_color)
+    ax.set_title("DUCSU GS election", pad=12, fontweight="bold")
+    fig.set_facecolor("white")
+    plt.tight_layout()
+    plt.show()
+    plot_df = (
+        common_df.sort_values("Actual", ascending=False)
+        .set_index("GS candidate")[["Actual"] + survey_cols]
+    )
+    plt.figure(figsize=(10, 6))
+    plt.style.use("seaborn-v0_8-whitegrid")
+    for col in plot_df.columns:
+        plt.plot(
+            plot_df.index,
+            plot_df[col],
+            marker="o",
+            markersize=7,
+            linewidth=2,
+            label=col,
+        )
+    plt.title("GS Common Candidates: Actual vs Survey Results")
+    plt.xlabel("GS candidate")
+    plt.ylabel("Vote Share")
+    plt.xticks(rotation=45, ha="right")
+    ax = plt.gca()
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    plt.legend(frameon=False)
+    plt.tight_layout()
+    plt.show()
 
 
 if __name__ == "__main__":

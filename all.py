@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 def main() -> None:
@@ -36,6 +37,34 @@ def main() -> None:
     results_df = pd.DataFrame(results)
     print("Common candidates:", ", ".join(common_df["Candidate"]))
     print(results_df)
+    fig, ax = plt.subplots(figsize=(9, 3))
+    ax.axis("off")
+    table = ax.table(
+        cellText=results_df.values,
+        colLabels=results_df.columns,
+        cellLoc="center",
+        colLoc="center",
+        loc="center",
+        edges="closed",
+    )
+    header_color = "#1f2937"
+    row_colors = ["#f8fafc", "#eef2f7"]
+    text_color = "#111827"
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1, 1.5)
+    for (row, col), cell in table.get_celld().items():
+        cell.set_linewidth(0.6)
+        if row == 0:
+            cell.set_facecolor(header_color)
+            cell.set_text_props(color="white", weight="bold")
+        else:
+            cell.set_facecolor(row_colors[(row - 1) % 2])
+            cell.set_text_props(color=text_color)
+    ax.set_title("DUCSU ALL election", pad=12, fontweight="bold")
+    fig.set_facecolor("white")
+    plt.tight_layout()
+    plt.show()
 
     excl_mask = ~common_df["Candidate"].str.contains("Others", case=False, na=False)
     excl_df = common_df[excl_mask].copy()
