@@ -1,4 +1,5 @@
 import sys
+
 import numpy as np
 import pandas as pd
 
@@ -15,10 +16,15 @@ def _try_pearsonr(x: np.ndarray, y: np.ndarray):
 
 
 def main() -> int:
-    csv_path = sys.argv[1] if len(sys.argv) > 1 else "Fore py - Sheet1.csv"
+    csv_path = sys.argv[1] if len(sys.argv) > 1 else "Fore py1 - Sheet1.csv"
     df = pd.read_csv(csv_path)
-    df = df[~df["Party (Division)"].isin(["BNP (Rangpur)", "BNP (Khulna)"])]
-    df["Division"] = df["Party (Division)"].str.extract(r"\(([^)]+)\)")
+    if "Division" not in df.columns and "Party (Division)" in df.columns:
+        df["Division"] = df["Party (Division)"].str.extract(r"\(([^)]+)\)")
+    if "Division" not in df.columns:
+        print("Missing 'Division' column for clustered SE.")
+        return 1
+    if "Party (Division)" in df.columns:
+        df = df[~df["Party (Division)"].isin(["BNP (Rangpur)", "BNP (Khulna)"])]
 
     # Linear regression and scatter plot
     divisions = ["Rajshahi", "Chittagong", "Barisal", "Dhaka", "Mymensingh", "Sylhet"]
@@ -33,6 +39,24 @@ def main() -> int:
     pearson_r2 = pearson_r * pearson_r if np.isfinite(pearson_r) else float("nan")
 
     from scipy.stats import linregress, spearmanr  # type: ignore
+
+    import statsmodels.api as sm
+
+    X = sm.add_constant(reg_df["Survey BAL"])
+    y_sm = reg_df["Actual-Survey BNP"]
+    cluster_groups = reg_df["Division"]
+    clustered_model = sm.OLS(y_sm, X).fit(
+        cov_type="cluster", cov_kwds={"groups": cluster_groups}
+    )
+    print()
+    print("Clusters (by Division):")
+    for division, group in reg_df.groupby("Division"):
+        rows = ", ".join(group["Party (Division)"].astype(str).tolist())
+        print(f"- {division}: {rows}")
+    print()
+    print()
+    print("Clustered SE regression summary (grouped by Division):")
+    print(clustered_model.summary())
 
     result = linregress(x, y)
     slope = float(result.slope)
@@ -55,6 +79,10 @@ def main() -> int:
     print(f"Spearman rho   {float(spearman_rho):.6f}")
     print(f"SEE      {see:.6f}")
 
+    print()
+    print(f"Slope (Survey BAL -> Actual-Survey BNP): {slope:.6f}")
+    print(f"P-value (linregress): {p_value:.6g}")
+
     import matplotlib.pyplot as plt
     import seaborn as sns
     from scipy.stats import t  # type: ignore
@@ -69,7 +97,8 @@ def main() -> int:
         ax=ax,
         s=70,
         alpha=0.95,
-        color="#1f77b4",
+        hue="Division",
+        palette=["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"],
         edgecolor="black",
         linewidth=0.4,
     )
@@ -119,6 +148,8 @@ def main() -> int:
     eq_text = f"y = {slope:.3f}x + {intercept:.3f}"
     stats_text = f"$R^2$ = {r_squared:.3f}, p = {p_value:.3g}"
     ax.set_title(f"{eq_text} | {stats_text}")
+    ax.set_xlabel("Survey BAL")
+    ax.set_ylabel("Actual-Survey BNP")
     ax.text(
         0.98,
         0.02,
@@ -126,12 +157,10 @@ def main() -> int:
         transform=ax.transAxes,
         ha="right",
         va="bottom",
-        fontsize=18,
+        fontsize=27,
         color="#444444",
     )
-    ax.set_xlabel("Survey BAL")
-    ax.set_ylabel("Actual-Survey BNP")
-    ax.set_ylim(0, 25)
+
     plt.tight_layout()
     plt.show()
     return 0
